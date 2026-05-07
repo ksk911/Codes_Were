@@ -1,0 +1,69 @@
+# Import libraries
+import tensorflow as tf
+from tensorflow.keras import layers
+from tensorflow.keras.datasets import cifar10
+import matplotlib.pyplot as plt
+# Load and normalize data
+(x_train, _), (_, _) = cifar10.load_data()
+x_train = (x_train.astype('float32') - 127.5) / 127.5
+# Create dataset
+batch_size = 128
+dataset = tf.data.Dataset.from_tensor_slices(x_train).shuffle(50000).batch(batch_size)
+# Generator
+def build_generator():
+    model = tf.keras.Sequential([
+        layers.Dense(256, input_shape=(100,)),
+        layers.ReLU(),
+        layers.Dense(32*32*3, activation='tanh'),
+        layers.Reshape((32, 32, 3))
+    ])
+    return model
+# Discriminator
+def build_discriminator():
+    model = tf.keras.Sequential([
+        layers.Flatten(input_shape=(32, 32, 3)),
+        layers.Dense(256),
+        layers.LeakyReLU(),
+        layers.Dense(1)  # Output: real or fake
+    ])
+    return model
+generator = build_generator()
+discriminator = build_discriminator()
+# Loss + Optimizers
+loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+gen_opt = tf.keras.optimizers.Adam(1e-4)
+disc_opt = tf.keras.optimizers.Adam(1e-4)
+# Single training step
+@tf.function
+def train_step(real_images):
+    noise = tf.random.normal([batch_size, 100])
+    with tf.GradientTape() as g_tape, tf.GradientTape() as d_tape:
+        fake_images = generator(noise, training=True)
+        real_out = discriminator(real_images, training=True)
+        fake_out = discriminator(fake_images, training=True)
+        g_loss = loss_fn(tf.ones_like(fake_out), fake_out)
+        d_loss = (loss_fn(tf.ones_like(real_out), real_out) +
+                  loss_fn(tf.zeros_like(fake_out), fake_out))
+    gen_opt.apply_gradients(zip(
+        g_tape.gradient(g_loss, generator.trainable_variables),
+        generator.trainable_variables))
+    disc_opt.apply_gradients(zip(
+        d_tape.gradient(d_loss, discriminator.trainable_variables),
+        discriminator.trainable_variables))
+# Training loop
+for epoch in range(30):
+    for batch in dataset:
+        train_step(batch)
+    print(f"Epoch {epoch+1} done")
+# Generate Images
+noise = tf.random.normal([16, 100])
+generated = generator(noise, training=False)
+# Rescale to [0,1]
+generated = (generated + 1) / 2.0
+# Plot
+plt.figure(figsize=(6,6))
+for i in range(16):
+    plt.subplot(4,4,i+1)
+    plt.imshow(generated[i])
+    plt.axis('off')
+plt.show()
